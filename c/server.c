@@ -2,6 +2,20 @@
 #include "dpde_publisher.h"
 
 
+typedef struct OEIParam{
+    DDS_Long domain_id;
+    char *peer;
+    char *udp_intf;
+    DDS_Long sleep_time;
+    DDS_Long count;
+} OEIParam;
+
+static void * publish_thread(void *arg);
+
+
+pthread_mutex_t mutex;
+pthread_cond_t cond;
+
 
 int main(int argc, char const *argv[])
 {
@@ -12,6 +26,12 @@ int main(int argc, char const *argv[])
     char *udp_intf = "lo";
     DDS_Long sleep_time = 1000;
     DDS_Long count = 0;
+    pthread_t publish_tid;
+
+    OEIParam param;
+
+    pthread_mutex_init(&mutex, NULL);
+    pthread_cond_init(&cond, NULL);
 
     for (i = 1; i < argc; ++i)
     {
@@ -77,21 +97,55 @@ int main(int argc, char const *argv[])
         }
     }
 
-    init_publisher("1", "2", domain_id+1,  udp_intf, peer, 
-            sleep_time, count);
 
     init_subscriber("client", "server", domain_id,  udp_intf, peer, 
             sleep_time, count);
 
+    param.count = count;
+    param.peer = peer;
+    param.sleep_time = sleep_time;
+    param.udp_intf = udp_intf;
+    param.domain_id = domain_id + 1;
 
-    const char *response = "This is response";
+    pthread_create(&publish_tid, NULL, publish_thread, &param);
+
 
     for(i=0; i <9999; i++){
         char *msg = subscribe_msg(1000);
         printf("Main: Recv msg: %s\n",msg);
-        publish_msg(response);
+
+        if(strcmp(msg, "q\n") == 0 || strcmp(msg, "q") ==0 )
+            break;
+
+        //wake up publish thread
+        pthread_mutex_lock(&mutex);
+        pthread_cond_signal(&cond);
+        pthread_mutex_unlock(&mutex);
+        //publish_msg(response);
     }
 
     
     return 0;
+}
+
+
+static void * publish_thread(void *arg){
+    OEIParam *param = (OEIParam *)arg;
+
+    init_publisher("server", "client", param->domain_id, param->udp_intf,
+            param->peer, param->sleep_time, param->count);
+    
+    printf("Start publish thread.\n");
+    const char *resp = "This is response";
+
+    while(1){
+        pthread_mutex_lock(&mutex);
+        pthread_cond_wait(&cond, &mutex);
+
+        printf("Publish a response!\n");
+        publish_msg(resp);
+
+        pthread_mutex_unlock(&mutex);
+    }
+
 }
