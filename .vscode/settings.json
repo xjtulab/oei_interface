@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "dpde_subscriber.h": "c",
+        "*.idl": "c"
+    }
+}
