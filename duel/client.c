@@ -1,7 +1,5 @@
-#include "dpde_publisher.h"
-#include "dpde_subscriber.h"
 
-
+#include "dpde_agent.h"
 
 int main(int argc, char const *argv[])
 {
@@ -10,9 +8,11 @@ int main(int argc, char const *argv[])
     DDS_Long domain_id = 0;
     char *peer = "127.0.0.1";
     char *udp_intf = "lo";
-    DDS_Long sleep_time = 1000;
+    DDS_Long sleep_time = 100000;
     DDS_Long count = 0;
-    char msg[128];
+    pthread_t publish_tid;
+    const char *pub_topic = "t1";
+    const char *sub_topic = "t2";
 
 
     for (i = 1; i < argc; ++i)
@@ -71,6 +71,20 @@ int main(int argc, char const *argv[])
         {
             Application_help(argv[0]);
             return 0;
+        }else if(!strcmp(argv[i], "-pub_topic")){
+            ++i;
+            if (i == argc){
+                printf("-pub_topic <pub_topic_name>\n");
+                return -1;
+            }
+            pub_topic = argv[i];
+        }else if(!strcmp(argv[i], "-sub_topic")){
+            ++i;
+            if (i == argc){
+                printf("-sub_topic <sub_topic_name>\n");
+                return -1;
+            }
+            sub_topic = argv[i];
         }
         else
         {
@@ -79,25 +93,23 @@ int main(int argc, char const *argv[])
         }
     }
 
-    init_publisher("client", "server", domain_id,  udp_intf, peer, 
-            sleep_time, count);
-    init_subscriber("client2", "server2", domain_id+1,  udp_intf, peer, 
-            sleep_time, count);
+    InitAll(pub_topic, sub_topic, domain_id, udp_intf, peer, sleep_time, count);
 
     printf("Please input your message: \n");
+    char msg[64];
     for(i=0; i <9999; i++){
-        fgets(msg, 128, stdin);
+        fgets(msg, 64, stdin);
         //remove last '\n'
         msg[strlen(msg)-1] = '\0';
         //send msg and receive response
         publish_msg(msg);
         printf("Send %s done!\n",msg);
-        char * recv_msg =  subscribe_msg(3);
-        printf("Receive %s done!\n",recv_msg);
 
-    
+        //wait for response
+
+        char *resp  = subscribe_msg();
+        printf("Get response: %s\n", resp);
     }
 
-    
     return 0;
 }

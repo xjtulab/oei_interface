@@ -1,10 +1,10 @@
+#include "application.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "oei_c.h"
 #include "disc_dpde/disc_dpde_discovery_plugin.h"
-#include "HelloWorldApplication.h"
 #include "HelloWorldPlugin.h"
 #include "wh_sm/wh_sm_history.h"
 #include "rh_sm/rh_sm_history.h"
@@ -21,14 +21,17 @@ Application_help(char *appname)
     printf("-peer <address>    - peer address (no default)\n");
     printf("-count <count>     - count (default -1)\n");
     printf("-sleep <ms>        - sleep between sends (default 1s)\n");
+    printf("-pub_topic <name>  - publish topic name\n");
+    printf("-sub_topic <name>  - subscribe topic name\n");
     printf("\n");
 }
+
 DDS_Publisher *publisher;
-struct Application *
-Application_create(const char *local_participant_name,
-                   const char *remote_participant_name,
-                   DDS_Long domain_id, char *udp_intf, char *peer,
-                   DDS_Long sleep_time, DDS_Long count)
+
+Application *Application_create(const char *pub_topic_name,
+                  const char *sub_topic_name,
+                  DDS_Long domain_id,  char *peer, char *udp_intf, 
+                  DDS_Long sleep_time, DDS_Long count)
 {
     DDS_ReturnCode_t retcode;
     DDS_DomainParticipantFactory *factory = NULL;
@@ -57,6 +60,8 @@ Application_create(const char *local_participant_name,
 
     application->sleep_time = sleep_time;
     application->count = count;
+    strcpy(application->pub_topic_name, pub_topic_name);
+    strcpy(application->sub_topic_name, sub_topic_name);
 
     factory = DDS_DomainParticipantFactory_get_instance();
 
@@ -97,33 +102,14 @@ Application_create(const char *local_participant_name,
     REDA_StringSeq_set_length(&udp_property->allow_interface,2);
 
     /* loopback interface */
-#if defined(OEI_DARWIN)
-    *REDA_StringSeq_get_reference(&udp_property->allow_interface,0) = "lo0";
-#elif defined (OEI_LINUX)
+
     *REDA_StringSeq_get_reference(&udp_property->allow_interface,0) = "lo";
-#elif defined (OEI_VXWORKS)
-    *REDA_StringSeq_get_reference(&udp_property->allow_interface,0) = "lo0";
-#elif defined(OEI_WIN32)
-    *REDA_StringSeq_get_reference(&udp_property->allow_interface,0) = "Loopback Pseudo-Interface 1";
-#else
-    *REDA_StringSeq_get_reference(&udp_property->allow_interface,0) = "lo";
-#endif
 
     if (udp_intf != NULL) { /* use interface supplied on command line */
         *REDA_StringSeq_get_reference(&udp_property->allow_interface,1) = 
             DDS_String_dup(udp_intf);
     } else {                /* use hardcoded interface */
-#if defined(OEI_DARWIN)
-        *REDA_StringSeq_get_reference(&udp_property->allow_interface,1) = "en1";
-#elif defined (OEI_LINUX)
         *REDA_StringSeq_get_reference(&udp_property->allow_interface,1) = "eth0";
-#elif defined (OEI_VXWORKS)
-        *REDA_StringSeq_get_reference(&udp_property->allow_interface,1) = "geisc0";
-#elif defined(OEI_WIN32)
-        *REDA_StringSeq_get_reference(&udp_property->allow_interface,1) = "Local Area Connection";
-#else
-        *REDA_StringSeq_get_reference(&udp_property->allow_interface,1) = "ce0";
-#endif
     }
 
     if (!RT_Registry_register(registry, NETIO_DEFAULT_UDP_NAME,
@@ -174,6 +160,8 @@ Application_create(const char *local_participant_name,
     dp_qos.resource_limits.remote_reader_allocation = 8;
     dp_qos.resource_limits.remote_writer_allocation = 8;
 
+
+    // create publisher and subscriber participant
     application->participant =
         DDS_DomainParticipantFactory_create_participant(factory, domain_id,
                                                         &dp_qos, NULL,
@@ -181,10 +169,11 @@ Application_create(const char *local_participant_name,
 
     if (application->participant == NULL)
     {
-        printf("failed to create participant\n");
+        printf("failed to create participant publisher\n");
         goto done;
     }
 
+    //fille type name
     sprintf(application->type_name, "HelloWorld");
     retcode = DDS_DomainParticipant_register_type(application->participant,
                                              application->type_name,
@@ -195,17 +184,33 @@ Application_create(const char *local_participant_name,
         goto done;
     }
 
-    sprintf(application->topic_name, "Example HelloWorld");
-    application->topic =
+    //fill topic name, there are two
+    sprintf(application->pub_topic_name, pub_topic_name);
+    application->pub_topic =
         DDS_DomainParticipant_create_topic(application->participant,
-                                           application->topic_name,
+                                           application->pub_topic_name,
                                            application->type_name,
                                            &DDS_TOPIC_QOS_DEFAULT, NULL,
                                            DDS_STATUS_MASK_NONE);
 
-    if (application->topic == NULL)
+    if (application->pub_topic == NULL)
     {
-        printf("topic == NULL\n");
+        printf("pub topic == NULL\n");
+        goto done;
+    }
+
+    sprintf(application->sub_topic_name, sub_topic_name);
+     application->sub_topic =
+        DDS_DomainParticipant_create_topic(application->participant,
+                                           application->sub_topic_name,
+                                           application->type_name,
+                                           &DDS_TOPIC_QOS_DEFAULT, NULL,
+                                           DDS_STATUS_MASK_NONE);
+
+
+    if (application->sub_topic == NULL)
+    {
+        printf("sub topic == NULL\n");
         goto done;
     }
 

@@ -1,21 +1,5 @@
-#include "dpde_subscriber.h"
-#include "dpde_publisher.h"
 
-
-typedef struct OEIParam{
-    DDS_Long domain_id;
-    char *peer;
-    char *udp_intf;
-    DDS_Long sleep_time;
-    DDS_Long count;
-} OEIParam;
-
-static void * publish_thread(void *arg);
-
-
-pthread_mutex_t mutex;
-pthread_cond_t cond;
-
+#include "dpde_agent.h"
 
 int main(int argc, char const *argv[])
 {
@@ -24,14 +8,12 @@ int main(int argc, char const *argv[])
     DDS_Long domain_id = 0;
     char *peer = "127.0.0.1";
     char *udp_intf = "lo";
-    DDS_Long sleep_time = 1000;
+    DDS_Long sleep_time = 100000;
     DDS_Long count = 0;
-    pthread_t publish_tid;
 
-    OEIParam param;
+    const char *pub_topic = "t1";
+    const char *sub_topic = "t2";
 
-    pthread_mutex_init(&mutex, NULL);
-    pthread_cond_init(&cond, NULL);
 
     for (i = 1; i < argc; ++i)
     {
@@ -89,6 +71,20 @@ int main(int argc, char const *argv[])
         {
             Application_help(argv[0]);
             return 0;
+        }else if(!strcmp(argv[i], "-pub_topic")){
+            ++i;
+            if (i == argc){
+                printf("-pub_topic <pub_topic_name>\n");
+                return -1;
+            }
+            pub_topic = argv[i];
+        }else if(!strcmp(argv[i], "-sub_topic")){
+            ++i;
+            if (i == argc){
+                printf("-sub_topic <sub_topic_name>\n");
+                return -1;
+            }
+            sub_topic = argv[i];
         }
         else
         {
@@ -97,55 +93,24 @@ int main(int argc, char const *argv[])
         }
     }
 
+    InitAll(pub_topic, sub_topic, domain_id, udp_intf, peer, sleep_time, count);
 
-    init_subscriber("client", "server", domain_id,  udp_intf, peer, 
-            sleep_time, count);
-
-    param.count = count;
-    param.peer = peer;
-    param.sleep_time = sleep_time;
-    param.udp_intf = udp_intf;
-    param.domain_id = domain_id + 1;
-
-    pthread_create(&publish_tid, NULL, publish_thread, &param);
-
-
+    printf("Wait for message: \n");
+    char msg[64];
     for(i=0; i <9999; i++){
-        char *msg = subscribe_msg(1000);
-        printf("Main: Recv msg: %s\n",msg);
 
-        if(strcmp(msg, "q\n") == 0 || strcmp(msg, "q") ==0 )
-            break;
 
-        //wake up publish thread
-        pthread_mutex_lock(&mutex);
-        pthread_cond_signal(&cond);
-        pthread_mutex_unlock(&mutex);
-        //publish_msg(response);
+        char *recv_msg = subscribe_msg();
+        printf("Get message: %s\n", recv_msg);
+        
+        strcpy(msg, "[response]:");
+        strcat(msg, recv_msg);
+        //remove last '\n'
+
+        printf("Send response: %s\n", msg);
+        publish_msg(msg);
+
     }
 
-    
     return 0;
-}
-
-
-static void * publish_thread(void *arg){
-    OEIParam *param = (OEIParam *)arg;
-
-    init_publisher("server", "client", param->domain_id, param->udp_intf,
-            param->peer, param->sleep_time, param->count);
-    
-    printf("Start publish thread.\n");
-    const char *resp = "This is response";
-
-    while(1){
-        pthread_mutex_lock(&mutex);
-        pthread_cond_wait(&cond, &mutex);
-
-        printf("Publish a response!\n");
-        publish_msg(resp);
-
-        pthread_mutex_unlock(&mutex);
-    }
-
 }
