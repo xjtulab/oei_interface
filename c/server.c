@@ -2,19 +2,8 @@
 #include "dpde_publisher.h"
 
 
-typedef struct OEIParam{
-    DDS_Long domain_id;
-    char *peer;
-    char *udp_intf;
-    DDS_Long sleep_time;
-    DDS_Long count;
-} OEIParam;
 
-static void * publish_thread(void *arg);
-
-
-pthread_mutex_t mutex;
-pthread_cond_t cond;
+char buffer[64];
 
 
 int main(int argc, char const *argv[])
@@ -28,10 +17,6 @@ int main(int argc, char const *argv[])
     DDS_Long count = 0;
     pthread_t publish_tid;
 
-    OEIParam param;
-
-    pthread_mutex_init(&mutex, NULL);
-    pthread_cond_init(&cond, NULL);
 
     for (i = 1; i < argc; ++i)
     {
@@ -98,30 +83,70 @@ int main(int argc, char const *argv[])
     }
 
 
-    init_subscriber("client", "server", domain_id,  udp_intf, peer, 
+    int piper[2]; //管道
+    if (pipe(piper) < 0) //创建管道
+    {
+        printf("pipe error\n");
+        return 0;
+    }
+
+     pid_t pid;
+    pid = fork(); //创建进程 获取id
+
+    if (pid < 0)
+            printf("error in fork!");
+    else if (pid == 0) //子进程
+    {
+        printf("This is child process for publish\n");
+        close(piper[1]);  //关闭写端  准备读
+
+        init_publisher("client", "server", domain_id,  udp_intf, peer, 
             sleep_time, count);
 
-    param.count = count;
-    param.peer = peer;
-    param.sleep_time = sleep_time;
-    param.udp_intf = udp_intf;
-    param.domain_id = domain_id + 1;
+        for(;;){
+            if(read(piper[0], buffer, 64) > 0){
+                publish_msg(buffer);
+            }else
+                break;
+            
+            if(strcmp(buffer, "q") == 0)
+                break;
+        }
 
-    pthread_create(&publish_tid, NULL, publish_thread, &param);
+    }
+    else //父进程
+    {
+            printf("This is parent process for subscribe.\n");            //打印进程id
+            close(piper[0]); //关闭读端口，开始写内容
 
+            init_subscriber("client", "server", domain_id,  udp_intf, peer, 
+            sleep_time, count);
 
-    for(i=0; i <9999; i++){
-        char *msg = subscribe_msg(1000);
-        printf("Main: Recv msg: %s\n",msg);
+            
+            for(;;){
+                char *msg = subscribe_msg(1000);
+                int break_flag = 0;
+                printf("Main: Recv msg: %s\n",msg);
 
-        if(strcmp(msg, "q\n") == 0 || strcmp(msg, "q") ==0 )
-            break;
+                if(strcmp(msg, "q\n") == 0 || strcmp(msg, "q") ==0 ){
+                    strcpy(buffer, "q");
+                    break_flag = 1;
 
-        //wake up publish thread
-        pthread_mutex_lock(&mutex);
-        pthread_cond_signal(&cond);
-        pthread_mutex_unlock(&mutex);
-        //publish_msg(response);
+                }else{
+                    strcpy(buffer, "This is response.\n");
+                }
+
+                write(piper[1], buffer, 64);
+
+                if(break_flag)
+                    break;
+            }
+            
+
+            if (-1 != write(piper[1], "hello(from parent)", strlen("hello(from parent)"))) //写入信息
+            {
+                    printf("send data to child\n");
+            }
     }
 
     
@@ -129,23 +154,3 @@ int main(int argc, char const *argv[])
 }
 
 
-static void * publish_thread(void *arg){
-    OEIParam *param = (OEIParam *)arg;
-
-    init_publisher("server", "client", param->domain_id, param->udp_intf,
-            param->peer, param->sleep_time, param->count);
-    
-    printf("Start publish thread.\n");
-    const char *resp = "This is response";
-
-    while(1){
-        pthread_mutex_lock(&mutex);
-        pthread_cond_wait(&cond, &mutex);
-
-        printf("Publish a response!\n");
-        publish_msg(resp);
-
-        pthread_mutex_unlock(&mutex);
-    }
-
-}

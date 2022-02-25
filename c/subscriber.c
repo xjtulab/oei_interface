@@ -80,7 +80,7 @@ int main(int argc, char const *argv[])
             sleep_time, count);
 
     for(i=0; i <9999; i++){
-        char *msg = subscribe_msg();
+        char *msg = subscribe_msg(9999);
         printf("Recv msg: %s\n",msg);
     }
 
